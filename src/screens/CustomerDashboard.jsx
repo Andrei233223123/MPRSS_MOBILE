@@ -19,7 +19,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 import CustomerLayout from "../components/CustomerLayout";
 
@@ -277,8 +277,7 @@ export default function CustomerDashboard() {
 
   const [currentUser, setCurrentUser] = useState(null);
 
-  const [customerProfile, setCustomerProfile] =
-    useState(null);
+  const [customerProfile, setCustomerProfile] = useState(null);
 
   const [motorcycles, setMotorcycles] = useState([]);
 
@@ -606,12 +605,7 @@ export default function CustomerDashboard() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Image
-            source={require("../../assets/logo.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-
+         
           <View>
             <Text style={styles.headerTitle}>
               {customerName}
@@ -1175,6 +1169,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginTop: 0,
   },
 
   headerLeft: {
@@ -1183,11 +1178,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
 
-  logo: {
-    width: 70,
-    height: 28,
-  },
-
+ 
   headerTitle: {
     fontSize: 17,
     fontWeight: "700",

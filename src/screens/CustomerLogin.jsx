@@ -11,7 +11,7 @@ import {
 } from "react-native";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth } from "../../firebase";
 
 export default function CustomerLogin() {
   const router = useRouter();
@@ -88,6 +88,7 @@ export default function CustomerLogin() {
       }
     } finally {
       setIsLoggingIn(false);
+     
     }
   };
 
@@ -98,7 +99,7 @@ export default function CustomerLogin() {
       start={{ x: 0.5, y: 0 }}
       end={{ x: 0.5, y: 1 }}
       style={styles.container}
-    >
+      >
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -148,6 +149,7 @@ export default function CustomerLogin() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!isLoggingIn}
+                onSubmitEditing={handleLogin}
               />
             </View>
 
@@ -164,8 +166,11 @@ export default function CustomerLogin() {
                   }
                   activeOpacity={0.7}
                   disabled={isLoggingIn}
+                  focusable={false}
+                  tabIndex={-1}
+                  accessible={false}  
                 >
-                  <Text style={styles.forgotPassword}>
+                  <Text style={styles.forgotPassword} focusable={false}>
                     Forgot Password?
                   </Text>
                 </TouchableOpacity>
@@ -188,6 +193,7 @@ export default function CustomerLogin() {
                   autoCapitalize="none"
                   autoCorrect={false}
                   editable={!isLoggingIn}
+                  onSubmitEditing={handleLogin}
                 />
 
                 <TouchableOpacity
@@ -197,8 +203,11 @@ export default function CustomerLogin() {
                   }
                   activeOpacity={0.7}
                   disabled={isLoggingIn}
+                  accessible={false}
+                  focusable={false}
+                  
                 >
-                  <Text style={styles.eyeText}>
+                  <Text style={styles.eyeText} focusable={false}>
                     {showPassword ? "◉" : "○"}
                   </Text>
                 </TouchableOpacity>
@@ -224,6 +233,7 @@ export default function CustomerLogin() {
               onPress={handleLogin}
               activeOpacity={0.9}
               disabled={isLoggingIn}
+              
             >
               <Text style={styles.signInText}>
                 {isLoggingIn
@@ -368,6 +378,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
+
   },
 
   passwordInput: {

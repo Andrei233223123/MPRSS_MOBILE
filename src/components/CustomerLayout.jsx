@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 export default function CustomerLayout({ title, children }) {
   const router = useRouter();
@@ -347,7 +347,12 @@ export default function CustomerLayout({ title, children }) {
             >
               <Text style={styles.menuIcon}>☰</Text>
             </TouchableOpacity>
-
+             <Image
+                source={require("../../assets/logo.png")}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            
             <Text style={styles.title}>{title}</Text>
           </View>
 
@@ -647,6 +652,8 @@ const styles = StyleSheet.create({
   main: {
     flex: 1,
     zIndex: 0,
+    marginTop: 40,
+
   },
 
   header: {
@@ -1003,4 +1010,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
+   logo: {
+    width: 70,
+    height: 28,
+    marginLeft:-8,
+    marginRight: 10,
+  },
+
 });

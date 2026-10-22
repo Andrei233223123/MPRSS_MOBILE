@@ -24,8 +24,8 @@ import {
   View,
 } from "react-native";
 
+import { auth, db } from "../../firebase";
 import CustomerLayout from "../components/CustomerLayout";
-import { auth, db } from "../firebase";
 
 export default function CustomerProfile() {
   const [showEditModal, setShowEditModal] =

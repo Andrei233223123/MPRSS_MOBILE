@@ -20,8 +20,8 @@ import {
 } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
+import { auth, db } from "../../firebase";
 import { setRegistrationData } from "../data/registrationStore";
-import { auth, db } from "../firebase";
 
 export default function CustomerRegister() {
   const router = useRouter();

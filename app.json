@@ -12,6 +12,11 @@
     },
     "android": {
       "package": "com.mprss.mobile",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "INTERNET"
+      ],
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -35,8 +40,14 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "@react-native-firebase/app",
-      "@react-native-firebase/auth"
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -45,8 +56,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "aafc4bf7-7131-4870-b274-8e03e56f6943"
+        "projectId": "4e11f990-80f2-4227-b0a2-ae4d18bec4e5"
       }
-    }
+    },
+    "owner": "drei838"
   }
 }

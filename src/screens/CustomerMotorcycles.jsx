@@ -23,7 +23,7 @@ import {
   where,
 } from "firebase/firestore";
 
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 export default function CustomerMotorcycles() {
   const [currentUser, setCurrentUser] = useState(null);

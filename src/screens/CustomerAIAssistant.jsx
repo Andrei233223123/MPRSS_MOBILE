@@ -1,22 +1,27 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
+
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where
+} from "firebase/firestore";
+import { auth, db } from "../../firebase";
 import CustomerLayout from "../components/CustomerLayout";
 
-import {
-    getMotorcycles,
-    subscribeToMotorcycles,
-} from "../data/motorcycleStore";
 
 const inventory = [
   {
@@ -80,41 +85,66 @@ export default function CustomerAIAssistant() {
 
   const [loading, setLoading] = useState(false);
 
-  const [showMotorcyclePicker, setShowMotorcyclePicker] =
-    useState(false);
+  const [showMotorcyclePicker, setShowMotorcyclePicker] = useState(false);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
 
-  const [showConfirmModal, setShowConfirmModal] =
-    useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-  const [showNoMotorcycleModal, setShowNoMotorcycleModal] =
-    useState(false);
+  const [showNoMotorcycleModal, setShowNoMotorcycleModal] = useState(false);
 
   const [buildName, setBuildName] = useState("");
 
+  const [currentUser, setCurrentUser] = useState("");
+
+  
+
   useEffect(() => {
-    const updateMotorcycles = () => {
-      setMotorcycles(getMotorcycles());
-    };
+    const getUser = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user || null);
+    });
 
-    updateMotorcycles();
-
-    const unsubscribe =
-      subscribeToMotorcycles(updateMotorcycles);
-
-    return unsubscribe;
+    return getUser;
   }, []);
 
-  const visibleInventory = inventory.filter(
-    (part) => part.visibleToCustomers
-  );
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      setMotorcycles([]);
+      return undefined;
+    }
+
+    const motorcyclesQuery = query(
+      collection(db, "motorcycles"),
+      where("customerId", "==", currentUser.uid),
+    );
+
+    const unsubscribe = onSnapshot(
+      motorcyclesQuery,
+      (snapshot) => {
+        const firebaseMotorcycles = snapshot.docs.map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }));
+
+        setMotorcycles(firebaseMotorcycles);
+      },
+      (error) => {
+        console.error("Error loading motorcycles:", error);
+
+        setMotorcycles([]);
+      },
+    );
+
+    return unsubscribe;
+  }, [currentUser?.uid]);
+
+  const visibleInventory = inventory.filter((part) => part.visibleToCustomers);
 
   const handlePartToggle = (partId) => {
     setSelectedParts((previous) =>
       previous.includes(partId)
         ? previous.filter((id) => id !== partId)
-        : [...previous, partId]
+        : [...previous, partId],
     );
   };
 
@@ -127,38 +157,27 @@ export default function CustomerAIAssistant() {
     }
   };
 
-  const handleAnalyze = () => {
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+  const handleAnalyze = async () => {
     if (motorcycles.length === 0) {
       setShowNoMotorcycleModal(true);
       return;
     }
 
     if (!formData.motorcycle) {
-      Alert.alert(
-        "Select Motorcycle",
-        "Please select a motorcycle first."
-      );
+      Alert.alert("Select Motorcycle", "Please select a motorcycle first.");
       return;
     }
 
-    if (
-      mode === "recommendation" &&
-      !formData.goal
-    ) {
-      Alert.alert(
-        "Select Goal",
-        "Please select your goal first."
-      );
+    if (mode === "recommendation" && !formData.goal) {
+      Alert.alert("Select Goal", "Please select your goal first.");
       return;
     }
 
-    if (
-      mode === "evaluation" &&
-      selectedParts.length === 0
-    ) {
+    if (mode === "evaluation" && selectedParts.length === 0) {
       Alert.alert(
         "Select Parts",
-        "Please select at least one part to evaluate."
+        "Please select at least one part to evaluate.",
       );
       return;
     }
@@ -166,54 +185,39 @@ export default function CustomerAIAssistant() {
     setLoading(true);
     setResult(null);
 
-    setTimeout(() => {
-      if (mode === "recommendation") {
-        setResult({
-          type: "recommendation",
-          suggestions: [
-            {
-              name: "Performance Exhaust System",
-              compatibility: 95,
-              safetyNote:
-                "Safe - Ensure professional installation",
-            },
-            {
-              name: "High-Flow Air Filter",
-              compatibility: 98,
-              safetyNote:
-                "Safe - Compatible with stock ECU",
-            },
-            {
-              name: "ECU Flash Tune",
-              compatibility: 90,
-              safetyNote:
-                "Caution - Requires dyno tuning",
-            },
-          ],
-        });
-      } else {
-        setResult({
-          type: "evaluation",
-          status: "Safe",
-          compatibility: 92,
-          recommendations: [
-            "All selected parts are compatible",
-            "Professional installation recommended",
-            "Consider regular maintenance checks",
-          ],
-          selectedParts: selectedParts
-            .map(
-              (id) =>
-                inventory.find(
-                  (part) => part.id === id
-                )?.name
-            )
-            .filter(Boolean),
-        });
+    try{
+
+      const chosenPartNames = selectedParts.map((id)=> inventory.find((part) => part.id == id )?.name).filter(Boolean);
+
+      const response = await fetch(`${API_BASE_URL}/api/ai-assistant`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Bypass-Tunnel-Reminder": "true",
+        },
+        body: JSON.stringify({
+          mode,
+          motorcycle: formData.motorcycle,
+          goal: formData.goal,
+          notes: formData.parts,
+          selectedParts: chosenPartNames,
+        })
+      });
+
+      const data = await response.json();
+
+      if(!response.ok || !data.result){
+        Alert.alert("AI Analysis Failed", "AI analysis failed. Please try again later.");
       }
 
+      setResult(data.result);
+
+    }catch(error){
+      console.error("Error analyzing:", error);
+      Alert.alert("Analysis Failed", error.message || "Could not connect to AI backend.");
+    }finally{
       setLoading(false);
-    }, 1500);
+    }
   };
 
   const handleSave = () => {
@@ -229,16 +233,11 @@ export default function CustomerAIAssistant() {
 
     const finalName =
       buildName ||
-      `${formData.motorcycle || "My"} ${
-        formData.goal || "Custom"
-      } Build`;
+      `${formData.motorcycle || "My"} ${formData.goal || "Custom"} Build`;
 
     setBuildName("");
 
-    Alert.alert(
-      "Build Saved",
-      `"${finalName}" has been saved successfully.`
-    );
+    Alert.alert("Build Saved", `"${finalName}" has been saved successfully.`);
   };
 
   const handleRequestService = () => {
@@ -264,37 +263,30 @@ export default function CustomerAIAssistant() {
           </View>
 
           <View style={styles.warningContent}>
-            <Text style={styles.warningTitle}>
-              Important Safety Notice
+            <Text style={styles.warningTitle}>Important Safety Notice</Text>
+
+            <Text style={styles.warningText}>
+              ⚠ Recommendations are based on motorcycle specifications and shop
+              guidelines.
             </Text>
 
             <Text style={styles.warningText}>
-              ⚠ Recommendations are based on motorcycle
-              specifications and shop guidelines.
-            </Text>
-
-            <Text style={styles.warningText}>
-              ⚠ Consult a professional mechanic before
-              applying modifications or installing parts.
+              ⚠ Consult a professional mechanic before applying modifications or
+              installing parts.
             </Text>
           </View>
         </View>
 
         {/* Mode Selection */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>
-            Select Mode
-          </Text>
+          <Text style={styles.sectionTitle}>Select Mode</Text>
 
           <TouchableOpacity
             style={[
               styles.modeCard,
-              mode === "recommendation" &&
-                styles.modeCardActive,
+              mode === "recommendation" && styles.modeCardActive,
             ]}
-            onPress={() =>
-              selectMode("recommendation")
-            }
+            onPress={() => selectMode("recommendation")}
             activeOpacity={0.85}
           >
             <View style={styles.modeHeader}>
@@ -302,22 +294,19 @@ export default function CustomerAIAssistant() {
                 <Text style={styles.modeIconText}>✦</Text>
               </View>
 
-              <Text style={styles.modeTitle}>
-                Get Recommendations
-              </Text>
+              <Text style={styles.modeTitle}>Get Recommendations</Text>
             </View>
 
             <Text style={styles.modeDescription}>
-              Get AI-powered part recommendations based
-              on your motorcycle and goals
+              Get AI-powered part recommendations based on your motorcycle and
+              goals
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
               styles.modeCard,
-              mode === "evaluation" &&
-                styles.modeCardActive,
+              mode === "evaluation" && styles.modeCardActive,
             ]}
             onPress={() => selectMode("evaluation")}
             activeOpacity={0.85}
@@ -327,14 +316,11 @@ export default function CustomerAIAssistant() {
                 <Text style={styles.modeIconText}>!</Text>
               </View>
 
-              <Text style={styles.modeTitle}>
-                Evaluate Setup
-              </Text>
+              <Text style={styles.modeTitle}>Evaluate Setup</Text>
             </View>
 
             <Text style={styles.modeDescription}>
-              Check compatibility and safety of your
-              selected parts
+              Check compatibility and safety of your selected parts
             </Text>
           </TouchableOpacity>
         </View>
@@ -348,15 +334,14 @@ export default function CustomerAIAssistant() {
           </Text>
 
           {/* Motorcycle */}
-          <Text style={styles.label}>
-            Motorcycle *
-          </Text>
+          <Text style={styles.label}>Motorcycle *</Text>
 
           <TouchableOpacity
             style={styles.selectBox}
             onPress={() => {
               if (motorcycles.length === 0) {
                 setShowNoMotorcycleModal(true);
+                console.log(motorcycles.length);
                 return;
               }
 
@@ -367,12 +352,10 @@ export default function CustomerAIAssistant() {
             <Text
               style={[
                 styles.selectText,
-                !formData.motorcycle &&
-                  styles.placeholderText,
+                !formData.motorcycle && styles.placeholderText,
               ]}
             >
-              {formData.motorcycle ||
-                "Select your motorcycle"}
+              {formData.motorcycle || "Select your motorcycle"}
             </Text>
 
             <Text style={styles.selectArrow}>▼</Text>
@@ -381,42 +364,35 @@ export default function CustomerAIAssistant() {
           {/* Goal */}
           {mode === "recommendation" && (
             <>
-              <Text style={styles.label}>
-                Goal *
-              </Text>
+              <Text style={styles.label}>Goal *</Text>
 
               <View style={styles.goalGrid}>
-                {[
-                  "Performance",
-                  "Safety",
-                  "Aesthetic",
-                  "Comfort",
-                ].map((goal) => (
-                  <TouchableOpacity
-                    key={goal}
-                    style={[
-                      styles.goalButton,
-                      formData.goal === goal &&
-                        styles.goalButtonActive,
-                    ]}
-                    onPress={() =>
-                      setFormData({
-                        ...formData,
-                        goal,
-                      })
-                    }
-                  >
-                    <Text
+                {["Performance", "Safety", "Aesthetic", "Comfort", "Say Hi"].map(
+                  (goal) => (
+                    <TouchableOpacity
+                      key={goal}
                       style={[
-                        styles.goalText,
-                        formData.goal === goal &&
-                          styles.goalTextActive,
+                        styles.goalButton,
+                        formData.goal === goal && styles.goalButtonActive,
                       ]}
+                      onPress={() =>
+                        setFormData({
+                          ...formData,
+                          goal,
+                        })
+                      }
                     >
-                      {goal}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={[
+                          styles.goalText,
+                          formData.goal === goal && styles.goalTextActive,
+                        ]}
+                      >
+                        {goal}
+                      </Text>
+                    </TouchableOpacity>
+                  ),
+                )}
               </View>
             </>
           )}
@@ -424,9 +400,7 @@ export default function CustomerAIAssistant() {
           {/* Additional Notes / Parts */}
           {mode === "recommendation" ? (
             <>
-              <Text style={styles.label}>
-                Additional Notes (Optional)
-              </Text>
+              <Text style={styles.label}>Additional Notes (Optional)</Text>
 
               <TextInput
                 value={formData.parts}
@@ -445,62 +419,36 @@ export default function CustomerAIAssistant() {
             </>
           ) : (
             <>
-              <Text style={styles.label}>
-                Select Parts *
-              </Text>
+              <Text style={styles.label}>Select Parts *</Text>
 
               <View style={styles.partsBox}>
                 {visibleInventory.map((part) => {
-                  const selected =
-                    selectedParts.includes(part.id);
+                  const selected = selectedParts.includes(part.id);
 
                   return (
                     <TouchableOpacity
                       key={part.id}
                       style={styles.partItem}
-                      onPress={() =>
-                        handlePartToggle(part.id)
-                      }
+                      onPress={() => handlePartToggle(part.id)}
                       activeOpacity={0.8}
                     >
                       <View
                         style={[
                           styles.checkbox,
-                          selected &&
-                            styles.checkboxSelected,
+                          selected && styles.checkboxSelected,
                         ]}
                       >
                         {selected && (
-                          <Text
-                            style={
-                              styles.checkboxCheck
-                            }
-                          >
-                            ✓
-                          </Text>
+                          <Text style={styles.checkboxCheck}>✓</Text>
                         )}
                       </View>
 
-                      <View
-                        style={styles.partInfo}
-                      >
-                        <Text
-                          style={
-                            styles.partName
-                          }
-                        >
-                          {part.name}
-                        </Text>
+                      <View style={styles.partInfo}>
+                        <Text style={styles.partName}>{part.name}</Text>
 
-                        <Text
-                          style={
-                            styles.partDetails
-                          }
-                        >
+                        <Text style={styles.partDetails}>
                           {part.category} • ₱
-                          {(
-                            part.price * 50
-                          ).toLocaleString()}
+                          {(part.price * 50).toLocaleString()}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -511,10 +459,7 @@ export default function CustomerAIAssistant() {
               {selectedParts.length > 0 && (
                 <Text style={styles.selectedCount}>
                   {selectedParts.length} part
-                  {selectedParts.length !== 1
-                    ? "s"
-                    : ""}{" "}
-                  selected
+                  {selectedParts.length !== 1 ? "s" : ""} selected
                 </Text>
               )}
             </>
@@ -524,21 +469,16 @@ export default function CustomerAIAssistant() {
           <TouchableOpacity
             style={[
               styles.analyzeButton,
-              loading &&
-                styles.analyzeButtonDisabled,
+              loading && styles.analyzeButtonDisabled,
             ]}
             onPress={handleAnalyze}
             disabled={loading}
             activeOpacity={0.85}
           >
-            <Text style={styles.analyzeIcon}>
-              ✦
-            </Text>
+            <Text style={styles.analyzeIcon}>✦</Text>
 
             <Text style={styles.analyzeButtonText}>
-              {loading
-                ? "Analyzing..."
-                : "Analyze with AI"}
+              {loading ? "Analyzing..." : "Analyze with AI"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -548,128 +488,59 @@ export default function CustomerAIAssistant() {
           <View style={styles.card}>
             <View style={styles.resultHeader}>
               <View style={styles.resultIcon}>
-                <Text style={styles.resultIconText}>
-                  ✦
-                </Text>
+                <Text style={styles.resultIconText}>✦</Text>
               </View>
 
-              <Text style={styles.sectionTitle}>
-                AI Analysis Results
-              </Text>
+              <Text style={styles.sectionTitle}>AI Analysis Results</Text>
             </View>
 
             {result.type === "recommendation" ? (
               <>
-                <Text style={styles.resultSubheading}>
-                  Recommended Parts:
-                </Text>
+                <Text style={styles.resultSubheading}>Recommended Parts:</Text>
 
-                {result.suggestions.map(
-                  (suggestion, index) => (
-                    <View
-                      key={index}
-                      style={styles.resultItem}
-                    >
-                      <View
-                        style={
-                          styles.resultItemTop
-                        }
-                      >
-                        <Text
-                          style={
-                            styles.resultItemTitle
-                          }
-                        >
-                          {suggestion.name}
-                        </Text>
-
-                        <View
-                          style={
-                            styles.compatibilityBadge
-                          }
-                        >
-                          <Text
-                            style={
-                              styles.compatibilityText
-                            }
-                          >
-                            {
-                              suggestion.compatibility
-                            }
-                            % Compatible
-                          </Text>
-                        </View>
-                      </View>
-
-                      <Text
-                        style={
-                          styles.safetyText
-                        }
-                      >
-                        ✓ {suggestion.safetyNote}
+                {result.suggestions.map((suggestion, index) => (
+                  <View key={index} style={styles.resultItem}>
+                    <View style={styles.resultItemTop}>
+                      <Text style={styles.resultItemTitle}>
+                        {suggestion.name}
                       </Text>
+
+                      <View style={styles.compatibilityBadge}>
+                        <Text style={styles.compatibilityText}>
+                          {suggestion.compatibility}% Compatible
+                        </Text>
+                      </View>
                     </View>
-                  )
-                )}
+
+                    <Text style={styles.safetyText}>
+                      ✓ {suggestion.safetyNote}
+                    </Text>
+                  </View>
+                ))}
               </>
             ) : (
               <>
                 <View style={styles.evaluationBox}>
-                  <View
-                    style={styles.evaluationIcon}
-                  >
-                    <Text
-                      style={
-                        styles.evaluationIconText
-                      }
-                    >
-                      ✓
-                    </Text>
+                  <View style={styles.evaluationIcon}>
+                    <Text style={styles.evaluationIconText}>✓</Text>
                   </View>
 
-                  <Text
-                    style={
-                      styles.evaluationTitle
-                    }
-                  >
-                    {result.status} -{" "}
-                    {result.compatibility}%
-                    Compatibility
+                  <Text style={styles.evaluationTitle}>
+                    {result.status} - {result.compatibility}% Compatibility
                   </Text>
                 </View>
 
-                <Text
-                  style={styles.resultSubheading}
-                >
-                  Recommendations:
-                </Text>
+                <Text style={styles.resultSubheading}>Recommendations:</Text>
 
-                {result.recommendations.map(
-                  (recommendation, index) => (
-                    <View
-                      key={index}
-                      style={
-                        styles.recommendationRow
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.bullet
-                        }
-                      >
-                        •
-                      </Text>
+                {result.recommendations.map((recommendation, index) => (
+                  <View key={index} style={styles.recommendationRow}>
+                    <Text style={styles.bullet}>•</Text>
 
-                      <Text
-                        style={
-                          styles.recommendationText
-                        }
-                      >
-                        {recommendation}
-                      </Text>
-                    </View>
-                  )
-                )}
+                    <Text style={styles.recommendationText}>
+                      {recommendation}
+                    </Text>
+                  </View>
+                ))}
               </>
             )}
 
@@ -679,19 +550,9 @@ export default function CustomerAIAssistant() {
                 onPress={handleSave}
                 activeOpacity={0.85}
               >
-                <Text
-                  style={styles.secondaryButtonIcon}
-                >
-                  ▣
-                </Text>
+                <Text style={styles.secondaryButtonIcon}>▣</Text>
 
-                <Text
-                  style={
-                    styles.secondaryButtonText
-                  }
-                >
-                  Save Build
-                </Text>
+                <Text style={styles.secondaryButtonText}>Save Build</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -699,13 +560,7 @@ export default function CustomerAIAssistant() {
                 onPress={handleRequestService}
                 activeOpacity={0.85}
               >
-                <Text
-                  style={
-                    styles.primaryButtonText
-                  }
-                >
-                  Request Service
-                </Text>
+                <Text style={styles.primaryButtonText}>Request Service</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -717,25 +572,15 @@ export default function CustomerAIAssistant() {
         visible={showMotorcyclePicker}
         transparent
         animationType="fade"
-        onRequestClose={() =>
-          setShowMotorcyclePicker(false)
-        }
+        onRequestClose={() => setShowMotorcyclePicker(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Select Motorcycle
-              </Text>
+              <Text style={styles.modalTitle}>Select Motorcycle</Text>
 
-              <TouchableOpacity
-                onPress={() =>
-                  setShowMotorcyclePicker(false)
-                }
-              >
-                <Text style={styles.closeButton}>
-                  ×
-                </Text>
+              <TouchableOpacity onPress={() => setShowMotorcyclePicker(false)}>
+                <Text style={styles.closeButton}>×</Text>
               </TouchableOpacity>
             </View>
 
@@ -746,16 +591,14 @@ export default function CustomerAIAssistant() {
               {motorcycles.map((motorcycle) => {
                 const value = `${motorcycle.brand} ${motorcycle.model} (${motorcycle.year})`;
 
-                const selected =
-                  formData.motorcycle === value;
+                const selected = formData.motorcycle === value;
 
                 return (
                   <TouchableOpacity
                     key={motorcycle.id}
                     style={[
                       styles.motorcyclePickerItem,
-                      selected &&
-                        styles.motorcyclePickerItemSelected,
+                      selected && styles.motorcyclePickerItemSelected,
                     ]}
                     onPress={() => {
                       setFormData({
@@ -767,40 +610,19 @@ export default function CustomerAIAssistant() {
                     }}
                     activeOpacity={0.8}
                   >
-                    <View
-                      style={
-                        styles.motorcyclePickerInfo
-                      }
-                    >
-                      <Text
-                        style={
-                          styles.motorcyclePickerName
-                        }
-                      >
-                        {motorcycle.brand}{" "}
-                        {motorcycle.model}
+                    <View style={styles.motorcyclePickerInfo}>
+                      <Text style={styles.motorcyclePickerName}>
+                        {motorcycle.brand} {motorcycle.model}
                       </Text>
 
-                      <Text
-                        style={
-                          styles.motorcyclePickerDetails
-                        }
-                      >
+                      <Text style={styles.motorcyclePickerDetails}>
                         {motorcycle.year} Model
-                        {motorcycle.plate
-                          ? ` • ${motorcycle.plate}`
-                          : ""}
+                        {motorcycle.plate ? ` • ${motorcycle.plate}` : ""}
                       </Text>
                     </View>
 
                     {selected && (
-                      <Text
-                        style={
-                          styles.motorcyclePickerCheck
-                        }
-                      >
-                        ✓
-                      </Text>
+                      <Text style={styles.motorcyclePickerCheck}>✓</Text>
                     )}
                   </TouchableOpacity>
                 );
@@ -815,36 +637,23 @@ export default function CustomerAIAssistant() {
         visible={showSaveModal}
         transparent
         animationType="fade"
-        onRequestClose={() =>
-          setShowSaveModal(false)
-        }
+        onRequestClose={() => setShowSaveModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Save Build
-              </Text>
+              <Text style={styles.modalTitle}>Save Build</Text>
 
-              <TouchableOpacity
-                onPress={() =>
-                  setShowSaveModal(false)
-                }
-              >
-                <Text style={styles.closeButton}>
-                  ×
-                </Text>
+              <TouchableOpacity onPress={() => setShowSaveModal(false)}>
+                <Text style={styles.closeButton}>×</Text>
               </TouchableOpacity>
             </View>
 
             <Text style={styles.modalDescription}>
-              Give your build a name to easily find it
-              later in "My Builds"
+              Give your build a name to easily find it later in "My Builds"
             </Text>
 
-            <Text style={styles.label}>
-              Build Name
-            </Text>
+            <Text style={styles.label}>Build Name</Text>
 
             <TextInput
               value={buildName}
@@ -857,31 +666,21 @@ export default function CustomerAIAssistant() {
             />
 
             <View style={styles.buildDetails}>
-              <Text style={styles.detailLabel}>
-                Build Details:
-              </Text>
+              <Text style={styles.detailLabel}>Build Details:</Text>
 
               <Text style={styles.detailText}>
-                <Text style={styles.detailBold}>
-                  Motorcycle:
-                </Text>{" "}
-                {formData.motorcycle ||
-                  "Not specified"}
+                <Text style={styles.detailBold}>Motorcycle:</Text>{" "}
+                {formData.motorcycle || "Not specified"}
               </Text>
 
               {formData.goal && (
                 <Text style={styles.detailText}>
-                  <Text style={styles.detailBold}>
-                    Goal:
-                  </Text>{" "}
-                  {formData.goal}
+                  <Text style={styles.detailBold}>Goal:</Text> {formData.goal}
                 </Text>
               )}
 
               <Text style={styles.detailText}>
-                <Text style={styles.detailBold}>
-                  Mode:
-                </Text>{" "}
+                <Text style={styles.detailBold}>Mode:</Text>{" "}
                 {mode === "recommendation"
                   ? "AI Recommendations"
                   : "Safety Evaluation"}
@@ -891,26 +690,16 @@ export default function CustomerAIAssistant() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() =>
-                  setShowSaveModal(false)
-                }
+                onPress={() => setShowSaveModal(false)}
               >
-                <Text style={styles.cancelText}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.modalPrimaryButton}
                 onPress={handleConfirmSave}
               >
-                <Text
-                  style={
-                    styles.modalPrimaryText
-                  }
-                >
-                  Save Build
-                </Text>
+                <Text style={styles.modalPrimaryText}>Save Build</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -922,29 +711,20 @@ export default function CustomerAIAssistant() {
         visible={showConfirmModal}
         transparent
         animationType="fade"
-        onRequestClose={() =>
-          setShowConfirmModal(false)
-        }
+        onRequestClose={() => setShowConfirmModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              Confirm Service Request
-            </Text>
+            <Text style={styles.modalTitle}>Confirm Service Request</Text>
 
             <View style={styles.confirmDetails}>
-              <Text style={styles.detailLabel}>
-                Motorcycle
-              </Text>
+              <Text style={styles.detailLabel}>Motorcycle</Text>
 
               <Text style={styles.detailTextStrong}>
-                {formData.motorcycle ||
-                  "Not selected"}
+                {formData.motorcycle || "Not selected"}
               </Text>
 
-              <Text style={styles.detailLabel}>
-                Service Type
-              </Text>
+              <Text style={styles.detailLabel}>Service Type</Text>
 
               <Text style={styles.detailTextStrong}>
                 {mode === "recommendation"
@@ -952,173 +732,87 @@ export default function CustomerAIAssistant() {
                   : "Parts Compatibility Check"}
               </Text>
 
-              {mode === "recommendation" &&
-                formData.goal && (
-                  <>
-                    <Text
-                      style={
-                        styles.detailLabel
-                      }
-                    >
-                      Goal
+              {mode === "recommendation" && formData.goal && (
+                <>
+                  <Text style={styles.detailLabel}>Goal</Text>
+
+                  <Text style={styles.detailTextStrong}>{formData.goal}</Text>
+                </>
+              )}
+
+              {mode === "recommendation" && formData.parts && (
+                <>
+                  <Text style={styles.detailLabel}>Additional Notes</Text>
+
+                  <Text style={styles.detailText}>{formData.parts}</Text>
+                </>
+              )}
+
+              {mode === "evaluation" && selectedParts.length > 0 && (
+                <>
+                  <Text style={styles.detailLabel}>Selected Parts</Text>
+
+                  {selectedParts.map((partId) => {
+                    const part = inventory.find((item) => item.id === partId);
+
+                    return part ? (
+                      <Text key={partId} style={styles.detailText}>
+                        • {part.name}
+                      </Text>
+                    ) : null;
+                  })}
+                </>
+              )}
+
+              {result && result.type === "recommendation" && (
+                <>
+                  <Text style={styles.detailLabel}>AI Recommended Parts</Text>
+
+                  {result.suggestions.map((suggestion, index) => (
+                    <Text key={index} style={styles.detailText}>
+                      • {suggestion.name}
                     </Text>
+                  ))}
+                </>
+              )}
 
-                    <Text
-                      style={
-                        styles.detailTextStrong
-                      }
-                    >
-                      {formData.goal}
-                    </Text>
-                  </>
-                )}
+              {result && result.type === "evaluation" && (
+                <>
+                  <Text style={styles.detailLabel}>Evaluation Result</Text>
 
-              {mode === "recommendation" &&
-                formData.parts && (
-                  <>
-                    <Text
-                      style={
-                        styles.detailLabel
-                      }
-                    >
-                      Additional Notes
-                    </Text>
-
-                    <Text
-                      style={styles.detailText}
-                    >
-                      {formData.parts}
-                    </Text>
-                  </>
-                )}
-
-              {mode === "evaluation" &&
-                selectedParts.length > 0 && (
-                  <>
-                    <Text
-                      style={
-                        styles.detailLabel
-                      }
-                    >
-                      Selected Parts
-                    </Text>
-
-                    {selectedParts.map(
-                      (partId) => {
-                        const part =
-                          inventory.find(
-                            (item) =>
-                              item.id ===
-                              partId
-                          );
-
-                        return part ? (
-                          <Text
-                            key={partId}
-                            style={
-                              styles.detailText
-                            }
-                          >
-                            • {part.name}
-                          </Text>
-                        ) : null;
-                      }
-                    )}
-                  </>
-                )}
-
-              {result &&
-                result.type ===
-                  "recommendation" && (
-                  <>
-                    <Text
-                      style={
-                        styles.detailLabel
-                      }
-                    >
-                      AI Recommended Parts
-                    </Text>
-
-                    {result.suggestions.map(
-                      (suggestion, index) => (
-                        <Text
-                          key={index}
-                          style={
-                            styles.detailText
-                          }
-                        >
-                          • {suggestion.name}
-                        </Text>
-                      )
-                    )}
-                  </>
-                )}
-
-              {result &&
-                result.type === "evaluation" && (
-                  <>
-                    <Text
-                      style={
-                        styles.detailLabel
-                      }
-                    >
-                      Evaluation Result
-                    </Text>
-
-                    <Text
-                      style={
-                        styles.detailText
-                      }
-                    >
-                      {result.status} -{" "}
-                      {result.compatibility}%
-                      Compatibility
-                    </Text>
-                  </>
-                )}
+                  <Text style={styles.detailText}>
+                    {result.status} - {result.compatibility}% Compatibility
+                  </Text>
+                </>
+              )}
             </View>
 
             <View style={styles.noticeBox}>
-              <Text style={styles.noticeIcon}>
-                ✓
-              </Text>
+              <Text style={styles.noticeIcon}>✓</Text>
 
               <Text style={styles.noticeText}>
-                Your service request will be reviewed
-                by our team. You'll be redirected to
-                the service section to continue your
-                booking.
+                Your service request will be reviewed by our team. You'll be
+                redirected to the service section to continue your booking.
               </Text>
             </View>
 
             <Text style={styles.questionText}>
-              Do you want to submit this service
-              request?
+              Do you want to submit this service request?
             </Text>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() =>
-                  setShowConfirmModal(false)
-                }
+                onPress={() => setShowConfirmModal(false)}
               >
-                <Text style={styles.cancelText}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.modalPrimaryButton}
                 onPress={handleConfirmSubmit}
               >
-                <Text
-                  style={
-                    styles.modalPrimaryText
-                  }
-                >
-                  Submit Request
-                </Text>
+                <Text style={styles.modalPrimaryText}>Submit Request</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1130,58 +824,35 @@ export default function CustomerAIAssistant() {
         visible={showNoMotorcycleModal}
         transparent
         animationType="fade"
-        onRequestClose={() =>
-          setShowNoMotorcycleModal(false)
-        }
+        onRequestClose={() => setShowNoMotorcycleModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.noMotoHeader}>
               <View style={styles.noMotoIcon}>
-                <Text
-                  style={
-                    styles.noMotoIconText
-                  }
-                >
-                  M
-                </Text>
+                <Text style={styles.noMotoIconText}>M</Text>
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text
-                  style={styles.modalTitle}
-                >
-                  No Motorcycle Registered
-                </Text>
+                <Text style={styles.modalTitle}>No Motorcycle Registered</Text>
               </View>
 
-              <TouchableOpacity
-                onPress={() =>
-                  setShowNoMotorcycleModal(false)
-                }
-              >
-                <Text style={styles.closeButton}>
-                  ×
-                </Text>
+              <TouchableOpacity onPress={() => setShowNoMotorcycleModal(false)}>
+                <Text style={styles.closeButton}>×</Text>
               </TouchableOpacity>
             </View>
 
             <Text style={styles.modalDescription}>
-              You need to register a motorcycle before
-              using the AI Assistant. Please add your
-              motorcycle information first.
+              You need to register a motorcycle before using the AI Assistant.
+              Please add your motorcycle information first.
             </Text>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() =>
-                  setShowNoMotorcycleModal(false)
-                }
+                onPress={() => setShowNoMotorcycleModal(false)}
               >
-                <Text style={styles.cancelText}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1191,13 +862,7 @@ export default function CustomerAIAssistant() {
                   router.push("/motorcycles");
                 }}
               >
-                <Text
-                  style={
-                    styles.modalPrimaryText
-                  }
-                >
-                  Register Motorcycle
-                </Text>
+                <Text style={styles.modalPrimaryText}>Register Motorcycle</Text>
               </TouchableOpacity>
             </View>
           </View>

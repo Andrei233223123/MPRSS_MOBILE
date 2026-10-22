@@ -24,8 +24,8 @@ import {
   where,
 } from "firebase/firestore";
 
+import { auth, db } from "../../firebase";
 import CustomerLayout from "../components/CustomerLayout";
-import { auth, db } from "../firebase";
 
 export default function CustomerCommunityBuilds() {
   const router = useRouter();

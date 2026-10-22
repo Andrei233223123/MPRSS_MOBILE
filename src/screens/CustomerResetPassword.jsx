@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { auth } from "../firebase";
+import { auth } from "../../firebase";
 
 export default function CustomerResetPassword() {
   const router = useRouter();

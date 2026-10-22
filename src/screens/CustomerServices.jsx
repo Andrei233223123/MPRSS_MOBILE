@@ -11,7 +11,7 @@ import {
 
 import { onAuthStateChanged } from "firebase/auth";
 
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 import {
   Modal,

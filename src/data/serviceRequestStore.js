@@ -7,7 +7,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 let serviceRequests = [];
 let currentServiceRequest = null;

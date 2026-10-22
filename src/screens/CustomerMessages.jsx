@@ -26,7 +26,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase";
 
 import CustomerLayout from "../components/CustomerLayout";
 
