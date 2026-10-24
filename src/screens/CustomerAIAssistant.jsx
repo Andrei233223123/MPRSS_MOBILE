@@ -14,9 +14,11 @@ import {
 
 import { onAuthStateChanged } from "firebase/auth";
 import {
+  addDoc,
   collection,
   onSnapshot,
   query,
+  serverTimestamp,
   where
 } from "firebase/firestore";
 import { auth, db } from "../../firebase";
@@ -228,26 +230,153 @@ export default function CustomerAIAssistant() {
     setShowSaveModal(true);
   };
 
-  const handleConfirmSave = () => {
-    setShowSaveModal(false);
+  
+
+const handleConfirmSave = async () => {
+    if (!currentUser?.uid) {
+      Alert.alert("Sign in required", "Please sign in again before saving a build.");
+      return;
+    }
+    if (!result) {
+      Alert.alert("No results", "Analyze your setup before saving a build.");
+      return;
+    }
 
     const finalName =
-      buildName ||
+      buildName.trim() ||
       `${formData.motorcycle || "My"} ${formData.goal || "Custom"} Build`;
 
-    setBuildName("");
+    try {
+      const savedBuildRef = await addDoc(collection(db, "builds"), {
+        userId: currentUser.uid,
+        name: finalName,
+        motorcycle: formData.motorcycle,
+        goal: formData.goal || null,
+        mode,
+        additionalNotes: formData.parts || "",
+        selectedParts: selectedParts.map((id) => {
+          const part = visibleInventory.find((item) => item.id === id);
+          return part ? { id: part.id, name: part.name, brand: part.brand || "", category: part.category || "", price: Number(part.price) || 0 } : { id, name: "Unknown part" };
+        }),
+        result,
+        createdAt: serverTimestamp(),
+      });
 
-    Alert.alert("Build Saved", `"${finalName}" has been saved successfully.`);
+      const riskLevel = result.compatibility;
+
+      if (riskLevel <= 70) {
+        const alertRef = await addDoc(collection(db, "aiAlerts"), {
+          customerId: currentUser.uid,
+          userId: currentUser.uid,
+          customerName: currentUser.displayName || currentUser.email?.split("@")[0] || "Customer",
+          buildId: savedBuildRef.id,
+          buildName: finalName,
+          motorcycle: formData.motorcycle,
+          riskLevel: riskLevel === "danger" ? "Dangerous" : riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1),
+          status: "New",
+          modification: (selectedParts || []).map((id) =>
+            visibleInventory.find((part) => part.id === id)?.name
+          ).filter(Boolean).join(", "),
+          result,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          adminNotified: false,
+        });
+
+        await addDoc(collection(db, "notifications"), {
+          customerId: currentUser.uid,
+          recipientRole: "customer",
+          type: "ai_safety_alert",
+          title: `${riskLevel <75  ? "Dangerous" : ""} Build Alert`,
+          message: riskLevel <=75
+            ? `Your build "${finalName}" has a dangerous-level safety risk and needs review.`
+            : `Your build "${finalName}" has been rated warning. Please review the safety recommendations before using this setup.`,
+          route: "/ai-assistant",
+          alertId: alertRef.id,
+          riskLevel: riskLevel === "danger" ? "Dangerous" : riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1),
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+
+        // Notify administrators about builds that need a safety review.
+        try {
+          const normalizedRiskLevel = riskLevel <=75
+            ? "Dangerous"
+            : riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1);
+          await addDoc(collection(db, "notifications"), {
+            recipientRole: "admin",
+            type: "ai_safety_alert",
+            title: `${normalizedRiskLevel} AI Safety Alert`,
+            message: `${currentUser.displayName || currentUser.email?.split("@")[0] || "A customer"} saved the build "${finalName}" with a ${normalizedRiskLevel.toLowerCase()} safety rating.`,
+            route: "/admin/ai-safety",
+            relatedId: alertRef.id,
+            alertId: alertRef.id,
+            buildId: savedBuildRef.id,
+            buildName: finalName,
+            customerId: currentUser.uid,
+            customerName: currentUser.displayName || currentUser.email?.split("@")[0] || "Customer",
+            motorcycle: formData.motorcycle,
+            riskLevel: normalizedRiskLevel,
+            read: false,
+            createdAt: serverTimestamp(),
+          });
+        } catch (notificationError) {
+          // The safety alert is already saved; notification failure must not undo it.
+          console.error("Failed to notify admin about AI safety alert:", notificationError);
+        }
+      }
+
+      setShowSaveModal(false);
+      setBuildName("");
+      Alert.alert("Build Saved", `"${finalName}" has been saved to My Builds.`);
+    } catch (error) {
+      console.error("Failed to save build:", error);
+      Alert.alert("Save failed", "Your build could not be saved. Please try again.");
+    }
   };
 
   const handleRequestService = () => {
     setShowConfirmModal(true);
   };
 
-  const handleConfirmSubmit = () => {
-    setShowConfirmModal(false);
-    router.push("/services");
+ const handleConfirmSubmit = async () => {
+    if (!currentUser?.uid) {
+      Alert.alert("Sign in required", "Please sign in again before submitting a service request.");
+      return;
+    }
+    if (!formData.motorcycle) {
+      Alert.alert("Select Motorcycle", "Please select a motorcycle first.");
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "services"), {
+        userId: currentUser.uid,
+        motorcycle: formData.motorcycle,
+        serviceType: mode === "recommendation"
+          ? "AI Recommended Parts Installation"
+          : "Parts Compatibility Check",
+        goal: formData.goal || null,
+        additionalNotes: formData.parts || "",
+        selectedParts: selectedParts.map((id) => {
+          const part = visibleInventory.find((item) => item.id === id);
+          return part ? { id: part.id, name: part.name, brand: part.brand || "", category: part.category || "", price: Number(part.price) || 0 } : { id, name: "Unknown part" };
+        }),
+        aiResult: result || null,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+
+      setShowConfirmModal(false);
+      Alert.alert("Request Submitted", "Your service request was sent to the shop.");
+      router.push("/services");
+    } catch (error) {
+      console.error("Failed to submit service request:", error);
+      Alert.alert("Submission failed", "Your service request could not be submitted. Please try again.");
+    }
   };
+  
+
 
   return (
     <CustomerLayout title="AI Assistant">
@@ -552,7 +681,7 @@ export default function CustomerAIAssistant() {
               >
                 <Text style={styles.secondaryButtonIcon}>▣</Text>
 
-                <Text style={styles.secondaryButtonText}>Save Build</Text>
+                <Text style={styles.secondaryButtonText} >Save Build</Text>
               </TouchableOpacity>
 
               <TouchableOpacity

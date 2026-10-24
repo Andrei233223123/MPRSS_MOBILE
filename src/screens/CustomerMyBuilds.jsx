@@ -133,7 +133,7 @@ export default function CustomerMyBuilds() {
     const buildsQuery = query(
       collection(db, "builds"),
       where(
-        "customerId",
+        "userId",
         "==",
         currentUser.uid
       )

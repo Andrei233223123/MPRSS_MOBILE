@@ -595,8 +595,7 @@ export default function CustomerLayout({ title, children }) {
             showsVerticalScrollIndicator={false}
           >
             {menuItems.map((item) => {
-              const active =
-                pathname === item.route;
+              const active = pathname === item.route;
 
               return (
                 <TouchableOpacity

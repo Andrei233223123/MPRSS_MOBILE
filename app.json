@@ -16,7 +16,6 @@
       "permissions": [
         "INTERNET"
       ],
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -47,7 +46,8 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      
     ],
     "experiments": {
       "typedRoutes": true,

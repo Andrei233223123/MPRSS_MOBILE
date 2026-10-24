@@ -3604,7 +3604,7 @@ function InfoGrid({ items }) {
       {items.map(
         ([label, value]) => (
           <View
-            key={label}
+            key={value}
             style={styles.infoItem}
           >
             <Text
